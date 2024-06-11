@@ -1,5 +1,6 @@
 import { createReadStream, readFileSync, writeFileSync } from 'fs';
 import csvParser from 'csv-parser';
+import { createObjectCsvWriter } from 'csv-writer';
 type LittleOwlCondition =
   | 'New'
   | 'UsedLikeNew'
@@ -22,6 +23,42 @@ interface LittleOwlItemEntry {
   inventorytype: LittleOwlInventoryType; // FBA/MF
   purchase_date?: string; // Must follow mm/dd/yyyy format
   ex_condition?: LittleOwlCondition; // Must Use the Following Values If Used
+}
+
+interface TrackingSpreadsheetItemEntry {
+  status: string;
+  title: string;
+  isbn: string;
+  purchase_date: string;
+  condition: string;
+  vendor: string;
+  cost: number;
+  ship_date: string;
+  order_id: string;
+  tracking_number: string;
+}
+interface NewTrackingSpreadsheetItemEntry {
+  status: string;
+  date: string;
+  title: string;
+  isbn: string;
+  seller: string;
+  qty: string;
+  condition: string;
+  market: string;
+  buy: number;
+  prepAndShip: string;
+  landedCost: string;
+  amzFees: string;
+  totalUnitCost: string;
+  estimatedSell: string;
+  estimatedProfit: string;
+  sellDate: string;
+  daysHeld: string;
+  actualSell: string;
+  actualProfit: string;
+  roi: string;
+  roiPA: string;
 }
 
 interface AmazonItemEntry {
@@ -74,19 +111,23 @@ function parseAmazonCSV(file: string): Promise<AmazonItemEntry[]> {
 
 function writeLittleOwlCSVFromAmazon(
   filename: string,
-  data: AmazonItemEntry[]
+  data: AmazonItemEntry[],
+  lastImport: string
 ) {
   const entries: LittleOwlItemEntry[] = [];
+  let lastImportPassed = false;
 
   data.forEach((entry) => {
-    if (new Date(entry['Order Date']) > new Date('2024-01-01')) {
+    // skip if the order id is less than the last import
+    lastImportPassed = lastImportPassed || entry['Order ID'] === lastImport;
+    if (!lastImportPassed) {
       const row: LittleOwlItemEntry = {
         productid: entry.ASIN,
         title: entry['Product Name'],
         SKU: 'LO-1167-' + entry.ASIN + '-' + entry['Order ID'],
         inventorytype: 'FBA',
         cost: parseFloat(entry['Total Owed']),
-        list_price: parseFloat(entry['Total Owed']) + 80,
+        list_price: (parseFloat(entry['Total Owed']) * 100 + 8000) / 100,
         ex_quantity: parseInt(entry.Quantity),
         ex_condition: getLittleOwlConditionFromAmazon(
           entry['Product Condition']
@@ -107,18 +148,99 @@ function writeLittleOwlCSVFromAmazon(
     }
   });
 
-  const csv = entries.map((entry) => {
-    return Object.values(entry).join(',');
+  // write the entries to a csv with header using csv-writer
+  createObjectCsvWriter({
+    path: filename,
+    header: [
+      { id: 'productid', title: 'productid' },
+      { id: 'title', title: 'title' },
+      { id: 'cost', title: 'cost' },
+      { id: 'list_price', title: 'list_price' },
+      { id: 'ex_quantity', title: 'ex_quantity' },
+      { id: 'SKU', title: 'SKU' },
+      { id: 'vendor', title: 'vendor' },
+      { id: 'inventorytype', title: 'inventorytype' },
+      { id: 'purchase_date', title: 'purchase_date' },
+      { id: 'ex_condition', title: 'ex_condition' }
+    ]
+  }).writeRecords(entries);
+}
+
+function writeTrackingFormatFromAmazon(
+  filename: string,
+  data: AmazonItemEntry[],
+  lastImport: string
+) {
+  const entries: TrackingSpreadsheetItemEntry[] = [];
+
+  let lastImportPassed = false;
+
+  data.forEach((entry) => {
+    // skip if the order id is less than the last import
+    lastImportPassed = lastImportPassed || entry['Order ID'] === lastImport;
+    if (!lastImportPassed) {
+      const row: TrackingSpreadsheetItemEntry = {
+        isbn: entry.ASIN,
+        title: entry['Product Name'],
+        cost: parseFloat(entry['Total Owed']),
+        condition: 'GOOD',
+        vendor: 'Amazon',
+        // parsed from amazon and formatted in mm/dd/yyyy
+        purchase_date: new Date(entry['Order Date']).toLocaleDateString(
+          'en-AU',
+          {
+            month: '2-digit',
+            day: '2-digit',
+            year: 'numeric'
+          }
+        ),
+        status: 'For Sale',
+        ship_date: new Date(entry['Ship Date']).toLocaleDateString('en-AU', {
+          month: '2-digit',
+          day: '2-digit',
+          year: 'numeric'
+        }),
+        order_id: entry['Order ID'],
+        tracking_number: entry['Carrier Name & Tracking Number']
+      };
+
+      entries.push(row);
+    }
   });
 
-  const csvString = csv.join('\n');
-
-  writeFileSync(filename, csvString);
+  entries.reverse();
+  // write the entries to a csv with header using csv-writer
+  createObjectCsvWriter({
+    path: filename,
+    header: [
+      { id: 'status', title: 'status' },
+      { id: 'title', title: 'title' },
+      { id: 'isbn', title: 'isbn' },
+      { id: 'bf', title: 'bf' },
+      { id: 'amz', title: 'amz' },
+      { id: 'purchase_date', title: 'purchase_date' },
+      { id: 'condition', title: 'condition' },
+      { id: 'vendor', title: 'vendor' },
+      { id: 'cost', title: 'cost' },
+      { id: 'prep', title: 'prep' },
+      { id: 'landed', title: 'landed' },
+      { id: 'received', title: 'received' },
+      { id: 'ship_date', title: 'ship_date' },
+      { id: 'notes', title: 'notes' },
+      { id: 'tracking_number', title: 'tracking_number' },
+      { id: 'order_id', title: 'order_id' }
+    ]
+  }).writeRecords(entries);
 }
 
 async function main() {
   const amazonData = await parseAmazonCSV('Retail.OrderHistory.1.csv');
-  writeLittleOwlCSVFromAmazon('little-owl.csv', amazonData);
+  // get the last order id from .last-import
+  const lastImport = readFileSync('.last-import', 'utf8');
+  writeLittleOwlCSVFromAmazon('little-owl.csv', amazonData, lastImport);
+  writeTrackingFormatFromAmazon('tracking.csv', amazonData, lastImport);
+  // write the first order id to .last-import
+  writeFileSync('.last-import', amazonData[0]['Order ID']);
 }
 
 main();
