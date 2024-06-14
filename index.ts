@@ -43,11 +43,11 @@ interface NewTrackingSpreadsheetItemEntry {
   title: string;
   isbn: string;
   seller: string;
-  qty: string;
+  qty: number;
   condition: string;
   market: string;
   buy: number;
-  prepAndShip: string;
+  prepAndShip: number;
   landedCost: string;
   amzFees: string;
   totalUnitCost: string;
@@ -59,6 +59,8 @@ interface NewTrackingSpreadsheetItemEntry {
   actualProfit: string;
   roi: string;
   roiPA: string;
+  orderId: string;
+  trackingNumber: string;
 }
 
 interface AmazonItemEntry {
@@ -233,12 +235,101 @@ function writeTrackingFormatFromAmazon(
   }).writeRecords(entries);
 }
 
+function writeNewTrackingFormatFromAmazon(
+  filename: string,
+  data: AmazonItemEntry[],
+  lastImport: string
+) {
+  const entries: NewTrackingSpreadsheetItemEntry[] = [];
+
+  let lastImportPassed = false;
+
+  // sort data by date
+  data.sort((a, b) => {
+    return (
+      new Date(a['Order Date']).getTime() - new Date(b['Order Date']).getTime()
+    );
+  });
+
+  data.forEach((entry) => {
+    // skip if the order id is less than the last import
+    // lastImportPassed = lastImportPassed || entry['Order ID'] === lastImport;
+    if (
+      !lastImportPassed &&
+      new Date(entry['Order Date']).getFullYear() >= 2024
+    ) {
+      const row: NewTrackingSpreadsheetItemEntry = {
+        isbn: entry.ASIN,
+        title: entry['Product Name'],
+        buy: parseFloat(entry['Total Owed']),
+        condition: getLittleOwlConditionFromAmazon(entry['Product Condition']),
+        market: 'AMZ',
+        seller: 'Amazon',
+        qty: Number.parseInt(entry.Quantity),
+        date: new Date(entry['Order Date']).toLocaleDateString('en-AU', {
+          month: '2-digit',
+          day: '2-digit',
+          year: 'numeric'
+        }),
+        status: getStatusFromAmazon(entry['Order Status']),
+        prepAndShip: entry['Shipping Address'].includes('POLARIS') ? 3 : 1.85,
+        landedCost: '',
+        amzFees: '',
+        totalUnitCost: '',
+        estimatedSell: '',
+        estimatedProfit: '',
+        sellDate: '',
+        daysHeld: '',
+        actualSell: '',
+        actualProfit: '',
+        roi: '',
+        roiPA: '',
+        orderId: entry['Order ID'],
+        trackingNumber: entry['Carrier Name & Tracking Number']
+      };
+
+      entries.push(row);
+    }
+  });
+
+  // write the entries to a csv with header using csv-writer
+  createObjectCsvWriter({
+    path: filename,
+    alwaysQuote: true,
+    header: [
+      { id: 'status', title: 'status' },
+      { id: 'date', title: 'date' },
+      { id: 'title', title: 'title' },
+      { id: 'isbn', title: 'isbn' },
+      { id: 'seller', title: 'seller' },
+      { id: 'qty', title: 'qty' },
+      { id: 'condition', title: 'condition' },
+      { id: 'market', title: 'market' },
+      { id: 'buy', title: 'buy' },
+      { id: 'prepAndShip', title: 'prepAndShip' },
+      { id: 'landedCost', title: 'landedCost' },
+      { id: 'amzFees', title: 'amzFees' },
+      { id: 'totalUnitCost', title: 'totalUnitCost' },
+      { id: 'estimatedSell', title: 'estimatedSell' },
+      { id: 'estimatedProfit', title: 'estimatedProfit' },
+      { id: 'sellDate', title: 'sellDate' },
+      { id: 'daysHeld', title: 'daysHeld' },
+      { id: 'actualSell', title: 'actualSell' },
+      { id: 'actualProfit', title: 'actualProfit' },
+      { id: 'roi', title: 'roi' },
+      { id: 'roiPA', title: 'roiPA' },
+      { id: 'orderId', title: 'orderId' },
+      { id: 'trackingNumber', title: 'trackingNumber' }
+    ]
+  }).writeRecords(entries);
+}
+
 async function main() {
   const amazonData = await parseAmazonCSV('Retail.OrderHistory.1.csv');
   // get the last order id from .last-import
   const lastImport = readFileSync('.last-import', 'utf8');
   writeLittleOwlCSVFromAmazon('little-owl.csv', amazonData, lastImport);
-  writeTrackingFormatFromAmazon('tracking.csv', amazonData, lastImport);
+  writeNewTrackingFormatFromAmazon('tracking.csv', amazonData, lastImport);
   // write the first order id to .last-import
   writeFileSync('.last-import', amazonData[0]['Order ID']);
 }
@@ -254,5 +345,14 @@ function getLittleOwlConditionFromAmazon(
     default:
     case 'Used - Good':
       return 'UsedGood';
+  }
+}
+
+function getStatusFromAmazon(amazonStatus: string): string {
+  switch (amazonStatus) {
+    case 'Cancelled':
+      return 'Closed';
+    default:
+      return 'For Sale';
   }
 }
