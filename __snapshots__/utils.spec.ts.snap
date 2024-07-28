@@ -1,0 +1,31 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`sortAmazonData > should sort the Amazon data by date, order ID, and ASIN 1`] = `
+[
+  {
+    "ASIN": "11111",
+    "orderDate": "2024-07-23T00:00:00.000Z",
+    "orderId": "111",
+  },
+  {
+    "ASIN": "22222",
+    "orderDate": "2024-07-23T00:00:00.000Z",
+    "orderId": "111",
+  },
+  {
+    "ASIN": "33333",
+    "orderDate": "2024-07-23T00:00:00.000Z",
+    "orderId": "333",
+  },
+  {
+    "ASIN": "44444",
+    "orderDate": "2024-07-22T00:00:00.000Z",
+    "orderId": "222",
+  },
+  {
+    "ASIN": "11111",
+    "orderDate": "2024-07-21T00:00:00.000Z",
+    "orderId": "444",
+  },
+]
+`;
